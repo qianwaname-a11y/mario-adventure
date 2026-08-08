@@ -1365,7 +1365,6 @@ function initAudio() {
 
 function resumeAudio() {
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-  if (!bgmPlaying) startBGM();
 }
 
 function playTone(freq, duration, type, vol, slideTo, slideStart) {
