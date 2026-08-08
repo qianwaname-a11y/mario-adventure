@@ -215,8 +215,8 @@
     <h1>设置</h1>
     <div class="setting-row"><label>🎵 音乐</label><input type="range" id="bgm-vol" min="0" max="100" value="30"><span class="setting-val" id="bgm-vol-val">30%</span></div>
     <div class="setting-row"><label>🔊 音效</label><input type="range" id="sfx-vol" min="0" max="100" value="60"><span class="setting-val" id="sfx-vol-val">60%</span></div>
-    <div class="setting-row"><label>🏃 移速</label><input type="range" id="speed-mult" min="50" max="300" value="100"><span class="setting-val" id="speed-mult-val">100%</span></div>
-    <div class="setting-row"><label>🦘 跳跃</label><input type="range" id="jump-mult" min="50" max="200" value="100"><span class="setting-val" id="jump-mult-val">100%</span></div>
+    <div class="setting-row"><label>🏃 移速</label><input type="range" id="speed-mult" min="50" max="150" value="100"><span class="setting-val" id="speed-mult-val">100%</span></div>
+    <div class="setting-row"><label>🦘 跳跃</label><input type="range" id="jump-mult" min="50" max="150" value="100"><span class="setting-val" id="jump-mult-val">100%</span></div>
     <p class="setting-hint">拖动滑块调整参数 · 自动保存</p>
     <button class="btn-small" id="btn-close-settings" style="margin-top:14px">关闭</button>
   </div>
@@ -299,6 +299,10 @@ let player, camera, coins, enemies, particles, blocks, pipes, pickups;
 let score, collectedCoins, distance, frameCount;
 let speedMult = 1.0;   // movement speed multiplier
 let jumpMult = 1.0;   // jump force multiplier
+let invincibleMode = false;      // cheat: permanent invincibility
+let cheatJumpCount = 0;         // consecutive jumps
+let cheatPhase = 0;             // 0=wait5jumps, 1=waitL, 2=waitR, 3=waitL2, 4=waitR2
+let cheatKeyTimer = 0;          // resets sequence if too slow
 let levelStartTime, flagX, levelClearTriggered;
 let keys = {};
 let mobileLeft = false, mobileRight = false, mobileJump = false;
@@ -666,6 +670,35 @@ function update() {
   player.vx = moveX * PLAYER_SPEED * speedMult;
   if (moveX !== 0) player.facing = moveX;
 
+  // ── Cheat code detection: 5 jumps → L-R-L-R → toggle invincible ──
+  if (cheatKeyTimer > 0) cheatKeyTimer--;
+  if (cheatJumpCount >= 5 && cheatPhase === 0) { cheatPhase = 1; cheatKeyTimer = 60; }
+
+  if (cheatPhase > 0 && cheatKeyTimer <= 0) {
+    // Timeout: reset cheat sequence
+    cheatPhase = 0; cheatJumpCount = 0;
+  }
+
+  // Track L-R-L-R after jump chain
+  const leftPressed = keys['ArrowLeft'] || keys['KeyA'] || mobileLeft;
+  const rightPressed = keys['ArrowRight'] || keys['KeyD'] || mobileRight;
+  if (cheatPhase > 0 && !player.jumpHeld) {
+    if (cheatPhase === 1 && leftPressed && !rightPressed) { cheatPhase = 2; cheatKeyTimer = 30; }
+    else if (cheatPhase === 2 && rightPressed && !leftPressed) { cheatPhase = 3; cheatKeyTimer = 30; }
+    else if (cheatPhase === 3 && leftPressed && !rightPressed) { cheatPhase = 4; cheatKeyTimer = 30; }
+    else if (cheatPhase === 4 && rightPressed && !leftPressed) {
+      // Success! Toggle invincible mode
+      invincibleMode = !invincibleMode;
+      cheatPhase = 0; cheatJumpCount = 0; cheatKeyTimer = 0;
+      if (invincibleMode) {
+        player.invincible = 9999;
+        spawnParticles(player.x + player.w/2, player.y + player.h/2, '#ffd700', 30);
+      } else {
+        player.invincible = 0;
+      }
+    }
+  }
+
   // ── Jump system with double jump & variable height ──
   const jumpJustPressed = (keys['Space'] || keys['ArrowUp'] || keys['KeyW'] || mobileJump);
   const jumpHeld = jumpJustPressed;
@@ -682,6 +715,8 @@ function update() {
       player.onGround = false; sfxJump();
       player.jumpHeld = true;
       player.doubleJumpUsed = false;
+      // Cheat: track jumps
+      if (cheatPhase === 0) { cheatJumpCount++; cheatKeyTimer = 90; }
     } else if (!player.doubleJumpUsed) {
       // Double jump!
       player.vy = DOUBLE_JUMP_FORCE * jumpMult;
@@ -778,7 +813,7 @@ function update() {
   }
 
   // Invincibility
-  if (player.invincible > 0) player.invincible--;
+  if (player.invincible > 0 && !invincibleMode) player.invincible--;
 
   // Camera follows player
   const targetCamX = player.x - W * 0.35;
