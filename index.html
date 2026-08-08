@@ -635,7 +635,7 @@ function update() {
     // Jump just pressed this frame
     if (player.onGround) {
       player.vy = PLAYER_JUMP;
-      player.onGround = false;
+      player.onGround = false; sfxJump();
       player.jumpHeld = true;
       player.doubleJumpUsed = false;
     } else if (!player.doubleJumpUsed) {
@@ -798,7 +798,7 @@ function update() {
     if (player.invincible <= 0 && rectsCollide(player, e)) {
       if (player.vy > 0 && player.y + player.h - e.y < TILE * 0.4) {
         // Stomp!
-        e.alive = false;
+        e.alive = false; sfxStomp();
         player.vy = -6;
         score += STOMP_SCORE;
         spawnParticles(e.x + e.w/2, e.y + e.h/2, '#ff9944', 10);
@@ -819,7 +819,7 @@ function update() {
     const dy = player.y + player.h/2 - c.y;
     if (Math.abs(dx) < TILE*0.6 && Math.abs(dy) < TILE*0.6) {
       c.collected = true;
-      collectedCoins++;
+      collectedCoins++; sfxCoin();
       score += COIN_SCORE;
       spawnParticles(c.x, c.y, '#ffd700', 6);
     }
@@ -828,7 +828,7 @@ function update() {
   // ── Flag collision ──
   if (!levelClearTriggered && flagX && player.x + player.w > flagX) {
     levelClearTriggered = true;
-    lives = 3; updateHUD(); // refill hearts on clear
+    lives = 3; updateHUD(); sfxLevelClear();
     const elapsed = Math.floor((Date.now() - levelStartTime) / 1000);
     const bonus = Math.floor((flagX - camera.x) / TILE) * 10;
     score += bonus + 500;
@@ -865,7 +865,7 @@ function hitQuestionBlock(block) {
   const cy = block.y - TILE;
   // Find the coin in the global chunk data and mark collected (or just add score)
   score += COIN_SCORE;
-  collectedCoins++;
+  collectedCoins++; sfxBlockHit();
   spawnParticles(cx, cy, '#ffd700', 8);
   // Bounce animation
   block.bounceTimer = 8;
@@ -873,12 +873,13 @@ function hitQuestionBlock(block) {
 
 function killPlayer(msg) {
   if (player.dead) return;
-  player.dead = true;
+  player.dead = true; sfxHurt();
   lives--;
   updateHUD();
   spawnParticles(player.x + player.w/2, player.y + player.h/2, '#ff4444', 15);
   if (lives <= 0) {
     gameState = 'gameover';
+    sfxDeath(); stopBGM();
     deathMsg.textContent = msg;
     finalCoins.textContent = collectedCoins;
     finalScore.textContent = score;
@@ -1317,6 +1318,7 @@ function buildLevelSelect() {
       currentWorldIdx = i;
       startScreen.classList.remove('active');
       gameState = 'playing';
+      initAudio(); startBGM();
       initGame();
     });
     grid.appendChild(btn);
@@ -1328,6 +1330,7 @@ buildLevelSelect();
 document.getElementById('btn-restart').addEventListener('click', () => {
   gameoverScreen.classList.remove('active');
   gameState = 'playing';
+  initAudio(); startBGM();
   initGame();
 });
 
@@ -1335,6 +1338,7 @@ document.getElementById('btn-next').addEventListener('click', () => {
   levelClearScreen.classList.remove('active');
   currentWorldIdx = (currentWorldIdx + 1) % WORLDS.length;
   gameState = 'playing';
+  initAudio(); startBGM();
   initGame();
 });
 
@@ -1345,6 +1349,160 @@ document.getElementById('btn-back-menu').addEventListener('click', () => {
   buildLevelSelect(); // refresh
 });
 
+// ── 8-Bit Audio Engine ──────────────────
+let audioCtx = null;
+let bgmGain = null;
+let bgmPlaying = false;
+let bgmTimeout = null;
+
+function initAudio() {
+  if (audioCtx) return;
+  try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { return; }
+  bgmGain = audioCtx.createGain();
+  bgmGain.gain.value = 0.12;
+  bgmGain.connect(audioCtx.destination);
+}
+
+function resumeAudio() {
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  if (!bgmPlaying) startBGM();
+}
+
+function playTone(freq, duration, type, vol, slideTo, slideStart) {
+  if (!audioCtx) return;
+  resumeAudio();
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || 'square';
+  osc.frequency.setValueAtTime(freq, t);
+  if (slideTo && slideStart) osc.frequency.linearRampToValueAtTime(slideTo, t + slideStart);
+  gain.gain.setValueAtTime(vol || 0.15, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(t); osc.stop(t + duration);
+}
+
+// Jump: quick rising chirp
+function sfxJump() { playTone(400, 0.06, 'square', 0.12); setTimeout(() => playTone(800, 0.08, 'square', 0.10), 40); }
+
+// Coin: two bright pings
+function sfxCoin() { playTone(988, 0.06, 'square', 0.08); setTimeout(() => playTone(1319, 0.10, 'square', 0.08), 60); }
+
+// Stomp: descending thud
+function sfxStomp() { playTone(600, 0.04, 'square', 0.10); setTimeout(() => playTone(200, 0.10, 'triangle', 0.12), 30); }
+
+// Hurt: noise burst
+function sfxHurt() {
+  if (!audioCtx) return; resumeAudio();
+  const t = audioCtx.currentTime;
+  for (let i = 0; i < 5; i++) {
+    playTone(200 + Math.random() * 300, 0.06, 'square', 0.10);
+    playTone(100 + Math.random() * 200, 0.06, 'sawtooth', 0.08);
+  }
+}
+
+// Death: descending melody
+function sfxDeath() {
+  [400,350,300,250,200,150].forEach((f,i) => setTimeout(() => playTone(f, 0.12, 'square', 0.12), i*70));
+}
+
+// Level Clear: triumphant fanfare
+function sfxLevelClear() {
+  const notes = [523, 659, 784, 1047, 784, 1047];
+  notes.forEach((f,i) => setTimeout(() => playTone(f, 0.18, 'square', 0.10), i*120));
+}
+
+// Power-up / question block hit
+function sfxBlockHit() { playTone(600, 0.05, 'square', 0.08); setTimeout(() => playTone(900, 0.08, 'square', 0.08), 50); }
+
+// ── Background Music (8-bit chiptune loop) ──
+function startBGM() {
+  if (!audioCtx || bgmPlaying) return;
+  bgmPlaying = true;
+  // Simple NES-style melody using Web Audio oscillators
+  // Super Mario-inspired chord progression
+  const melody = [
+    // Bar 1-2: C major theme
+    [523,0.12],[0,0.06],[523,0.12],[0,0.06],[523,0.12],[0,0.06],[523,0.12],[0,0.06],
+    [659,0.12],[0,0.06],[659,0.12],[0,0.06],[659,0.12],[0,0.06],[587,0.18],[0,0.06],
+    // Bar 3-4
+    [587,0.12],[0,0.06],[587,0.12],[0,0.06],[523,0.12],[0,0.06],[494,0.12],[0,0.06],
+    [440,0.12],[0,0.06],[494,0.18],[0,0.06],[523,0.12],[659,0.12],[0,0.06],
+    // Bar 5-6
+    [784,0.12],[0,0.06],[784,0.12],[0,0.06],[784,0.12],[0,0.06],[698,0.12],[0,0.06],
+    [659,0.12],[0,0.06],[587,0.12],[0,0.06],[523,0.12],[0,0.06],[587,0.18],[0,0.06],
+    // Bar 7-8
+    [659,0.12],[0,0.06],[523,0.12],[0,0.06],[494,0.12],[0,0.06],[440,0.12],[0,0.06],
+    [494,0.18],[0,0.06],[523,0.12],[0,0.12],[0,0.24],
+    // Bar 9-10: variation
+    [440,0.12],[0,0.06],[494,0.12],[0,0.06],[523,0.12],[0,0.06],[587,0.12],[0,0.06],
+    [659,0.12],[0,0.06],[698,0.12],[0,0.06],[784,0.12],[0,0.06],[880,0.18],[0,0.06],
+    // Bar 11-12
+    [880,0.12],[0,0.06],[784,0.12],[0,0.06],[698,0.12],[0,0.06],[659,0.12],[0,0.06],
+    [587,0.12],[0,0.06],[523,0.12],[0,0.06],[494,0.12],[0,0.06],[523,0.18],[0,0.06],
+    // Bar 13-14: return
+    [523,0.12],[0,0.06],[523,0.12],[0,0.06],[523,0.12],[0,0.06],[523,0.12],[0,0.06],
+    [659,0.12],[0,0.06],[659,0.12],[0,0.06],[659,0.12],[0,0.06],[587,0.18],[0,0.06],
+    // Bar 15-16: ending
+    [587,0.12],[0,0.06],[587,0.12],[0,0.06],[523,0.12],[0,0.06],[494,0.12],[0,0.06],
+    [440,0.12],[0,0.06],[494,0.24],[523,0.06],[0,0.06],[0,0.12],
+  ];
+
+  const bass = [
+    [131,0.24],[131,0.24],[131,0.24],[131,0.24],
+    [110,0.24],[110,0.24],[131,0.24],[131,0.24],
+    [165,0.24],[165,0.24],[131,0.24],[131,0.24],
+    [110,0.24],[110,0.24],[131,0.24],[131,0.24],
+    [98,0.24],[98,0.24],[131,0.24],[131,0.24],
+    [165,0.24],[165,0.24],[131,0.24],[131,0.24],
+    [131,0.24],[131,0.24],[131,0.24],[131,0.24],
+    [110,0.24],[110,0.24],[131,0.24],[220,0.12],[0,0.12],
+  ];
+
+  function scheduleLoop(notes, gainNode, type, vol, startOffset) {
+    let time = audioCtx.currentTime + 0.1;
+    for (let i = 0; i < notes.length; i++) {
+      const [freq, dur] = notes[i];
+      if (freq > 0 && vol > 0) {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, time);
+        g.gain.setValueAtTime(vol, time);
+        g.gain.exponentialRampToValueAtTime(0.0001, time + dur * 0.85);
+        osc.connect(g); g.connect(gainNode);
+        osc.start(time); osc.stop(time + dur);
+      }
+      time += dur;
+    }
+    return time - audioCtx.currentTime;
+  }
+
+  function playLoop() {
+    if (!bgmPlaying) return;
+    const bassG = audioCtx.createGain();
+    bassG.gain.value = 0.18;
+    bassG.connect(bgmGain);
+    const leadG = audioCtx.createGain();
+    leadG.gain.value = 0.22;
+    leadG.connect(bgmGain);
+
+    const leadDur = scheduleLoop(melody, leadG, 'square', 0.14, 0);
+    const bassDur = scheduleLoop(bass, bassG, 'triangle', 0.22, 0);
+    const loopLen = Math.max(leadDur, bassDur) * 1000 + 100;
+
+    bgmTimeout = setTimeout(() => { playLoop(); }, loopLen);
+  }
+
+  playLoop();
+}
+
+function stopBGM() {
+  bgmPlaying = false;
+  if (bgmTimeout) { clearTimeout(bgmTimeout); bgmTimeout = null; }
+}
+
 // ── Utility ────────────────────────────
 function rand(min, max) { return Math.random() * (max - min) + min; }
 function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
@@ -1352,7 +1510,7 @@ function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
 // ── Return to menu ─────────────────────
 document.getElementById('btn-return').addEventListener('click', () => {
   if (gameState === 'playing' || gameState === 'levelclear') {
-    gameState = 'start';
+    gameState = 'start'; stopBGM();
     startScreen.classList.add('active');
     levelClearScreen.classList.remove('active');
     gameoverScreen.classList.remove('active');
