@@ -672,7 +672,7 @@ function update() {
 
   // ── Cheat code detection: 5 jumps → L-R-L-R → toggle invincible ──
   if (cheatKeyTimer > 0) cheatKeyTimer--;
-  if (cheatJumpCount >= 5 && cheatPhase === 0) { cheatPhase = 1; cheatKeyTimer = 60; }
+  if (cheatJumpCount >= 5 && cheatPhase === 0) { cheatPhase = 1; cheatKeyTimer = 120; }
 
   if (cheatPhase > 0 && cheatKeyTimer <= 0) {
     // Timeout: reset cheat sequence
@@ -683,9 +683,9 @@ function update() {
   const leftPressed = keys['ArrowLeft'] || keys['KeyA'] || mobileLeft;
   const rightPressed = keys['ArrowRight'] || keys['KeyD'] || mobileRight;
   if (cheatPhase > 0 && !player.jumpHeld) {
-    if (cheatPhase === 1 && leftPressed && !rightPressed) { cheatPhase = 2; cheatKeyTimer = 30; }
-    else if (cheatPhase === 2 && rightPressed && !leftPressed) { cheatPhase = 3; cheatKeyTimer = 30; }
-    else if (cheatPhase === 3 && leftPressed && !rightPressed) { cheatPhase = 4; cheatKeyTimer = 30; }
+    if (cheatPhase === 1 && leftPressed && !rightPressed) { cheatPhase = 2; cheatKeyTimer = 60; }
+    else if (cheatPhase === 2 && rightPressed && !leftPressed) { cheatPhase = 3; cheatKeyTimer = 60; }
+    else if (cheatPhase === 3 && leftPressed && !rightPressed) { cheatPhase = 4; cheatKeyTimer = 60; }
     else if (cheatPhase === 4 && rightPressed && !leftPressed) {
       // Success! Toggle invincible mode
       invincibleMode = !invincibleMode;
@@ -716,7 +716,7 @@ function update() {
       player.jumpHeld = true;
       player.doubleJumpUsed = false;
       // Cheat: track jumps
-      if (cheatPhase === 0) { cheatJumpCount++; cheatKeyTimer = 90; }
+      if (cheatPhase === 0) { cheatJumpCount++; cheatKeyTimer = 150; }
     } else if (!player.doubleJumpUsed) {
       // Double jump!
       player.vy = DOUBLE_JUMP_FORCE * jumpMult;
