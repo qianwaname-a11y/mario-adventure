@@ -108,7 +108,7 @@
 
   /* Mobile controls */
   #mobile-controls {
-    position:fixed; bottom:20px; left:0; right:0; display:none;
+    position:fixed; bottom:50px; left:0; right:0; display:none;
     justify-content:space-between; align-items:flex-end;
     padding:0 16px; z-index:50; pointer-events:none;
   }
@@ -121,22 +121,23 @@
     .overlay-card h1 { font-size:22px; }
     .setting-row { font-size:12px; gap:8px; margin:8px 0; }
     .setting-row label { min-width:48px; font-size:12px; }
-    .ctrl-btn { width:48px; height:48px; font-size:20px; }
-    .ctrl-btn.jump-btn { width:64px; height:64px; font-size:24px; }
+    .ctrl-btn { width:62px; height:62px; font-size:26px; }
+    .ctrl-btn.jump-btn { width:83px; height:83px; font-size:32px; }
   }
   .ctrl-group { display:flex; gap:8px; pointer-events:auto; }
   .ctrl-btn {
-    width:56px; height:56px; border-radius:12px;
+    width:72px; height:72px; border-radius:14px;
     background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.25);
-    color:#fff; font-size:24px; display:flex; align-items:center;
+    color:#fff; font-size:30px; display:flex; align-items:center;
     justify-content:center; cursor:pointer; -webkit-tap-highlight-color:transparent;
     user-select:none; -webkit-user-select:none;
+    -webkit-touch-callout:none; touch-action:manipulation;
   }
   .ctrl-btn:active { background:rgba(255,255,255,0.35); transform:scale(0.9); }
   .ctrl-btn.jump-btn {
-    width:72px; height:72px; border-radius:50%;
+    width:94px; height:94px; border-radius:50%;
     background:rgba(229,37,33,0.5); border-color:rgba(255,255,255,0.35);
-    font-size:28px;
+    font-size:36px;
   }
 </style>
 </head>
@@ -214,7 +215,9 @@
     <h1>设置</h1>
     <div class="setting-row"><label>🎵 音乐</label><input type="range" id="bgm-vol" min="0" max="100" value="30"><span class="setting-val" id="bgm-vol-val">30%</span></div>
     <div class="setting-row"><label>🔊 音效</label><input type="range" id="sfx-vol" min="0" max="100" value="60"><span class="setting-val" id="sfx-vol-val">60%</span></div>
-    <p class="setting-hint">拖动滑块调整音量 · 自动保存</p>
+    <div class="setting-row"><label>🏃 移速</label><input type="range" id="speed-mult" min="50" max="300" value="100"><span class="setting-val" id="speed-mult-val">100%</span></div>
+    <div class="setting-row"><label>🦘 跳跃</label><input type="range" id="jump-mult" min="50" max="200" value="100"><span class="setting-val" id="jump-mult-val">100%</span></div>
+    <p class="setting-hint">拖动滑块调整参数 · 自动保存</p>
     <button class="btn-small" id="btn-close-settings" style="margin-top:14px">关闭</button>
   </div>
 </div>
@@ -294,6 +297,8 @@ let currentWorldIdx = 0;
 let lives = 3;
 let player, camera, coins, enemies, particles, blocks, pipes, pickups;
 let score, collectedCoins, distance, frameCount;
+let speedMult = 1.0;   // movement speed multiplier
+let jumpMult = 1.0;   // jump force multiplier
 let levelStartTime, flagX, levelClearTriggered;
 let keys = {};
 let mobileLeft = false, mobileRight = false, mobileJump = false;
@@ -658,7 +663,7 @@ function update() {
   const jumpPressed = keys['Space'] || keys['ArrowUp'] || keys['KeyW'] || mobileJump;
 
   // Player movement
-  player.vx = moveX * PLAYER_SPEED;
+  player.vx = moveX * PLAYER_SPEED * speedMult;
   if (moveX !== 0) player.facing = moveX;
 
   // ── Jump system with double jump & variable height ──
@@ -673,13 +678,13 @@ function update() {
   if (jumpJustPressed && !player.jumpHeld) {
     // Jump just pressed this frame
     if (player.onGround) {
-      player.vy = PLAYER_JUMP;
+      player.vy = PLAYER_JUMP * jumpMult;
       player.onGround = false; sfxJump();
       player.jumpHeld = true;
       player.doubleJumpUsed = false;
     } else if (!player.doubleJumpUsed) {
       // Double jump!
-      player.vy = DOUBLE_JUMP_FORCE;
+      player.vy = DOUBLE_JUMP_FORCE * jumpMult;
       player.doubleJumpUsed = true;
       player.jumpHeld = true;
       // Double jump particles
@@ -1646,33 +1651,75 @@ function saveVolume(key, val) {
 function syncSliders() {
   const bgmSlider = document.getElementById('bgm-vol');
   const sfxSlider = document.getElementById('sfx-vol');
+  const spdSlider = document.getElementById('speed-mult');
+  const jmpSlider = document.getElementById('jump-mult');
   if (bgmSlider && bgmGain) bgmSlider.value = Math.round(bgmGain.gain.value * 100);
   if (sfxSlider && sfxGain) sfxSlider.value = Math.round(sfxGain.gain.value * 100);
-  updateVolLabels();
+  if (spdSlider) spdSlider.value = Math.round(speedMult * 100);
+  if (jmpSlider) jmpSlider.value = Math.round(jumpMult * 100);
+  updateAllLabels();
 }
 
-function updateVolLabels() {
+function updateAllLabels() {
   const bgmV = document.getElementById('bgm-vol');
   const sfxV = document.getElementById('sfx-vol');
+  const spdV = document.getElementById('speed-mult');
+  const jmpV = document.getElementById('jump-mult');
   document.getElementById('bgm-vol-val').textContent = bgmV ? bgmV.value + '%' : '30%';
   document.getElementById('sfx-vol-val').textContent = sfxV ? sfxV.value + '%' : '60%';
+  document.getElementById('speed-mult-val').textContent = spdV ? spdV.value + '%' : '100%';
+  document.getElementById('jump-mult-val').textContent = jmpV ? jmpV.value + '%' : '100%';
 }
 
 function onBgmVolChange(v) {
   if (bgmGain) bgmGain.gain.value = v / 100;
   saveVolume(VOL_BGM_KEY, v);
-  updateVolLabels();
+  updateAllLabels();
 }
 
 function onSfxVolChange(v) {
   if (sfxGain) sfxGain.gain.value = v / 100;
   saveVolume(VOL_SFX_KEY, v);
-  updateVolLabels();
+  updateAllLabels();
 }
 
-// BGM volume sliders handler
+// ── Speed / Jump settings ──────────────
+const KEY_SPEED = 'mario_speed';
+const KEY_JUMP  = 'mario_jump';
+
+function loadSpeedJump() {
+  try {
+    const sv = localStorage.getItem(KEY_SPEED);
+    const jv = localStorage.getItem(KEY_JUMP);
+    speedMult = sv !== null ? parseFloat(sv) / 100 : 1.0;
+    jumpMult  = jv !== null ? parseFloat(jv) / 100 : 1.0;
+  } catch(e) {}
+  const spdSlider = document.getElementById('speed-mult');
+  const jmpSlider = document.getElementById('jump-mult');
+  if (spdSlider) spdSlider.value = Math.round(speedMult * 100);
+  if (jmpSlider) jmpSlider.value = Math.round(jumpMult * 100);
+  updateAllLabels();
+}
+
+function onSpeedChange(v) {
+  speedMult = v / 100;
+  try { localStorage.setItem(KEY_SPEED, v); } catch(e) {}
+  updateAllLabels();
+}
+
+function onJumpChange(v) {
+  jumpMult = v / 100;
+  try { localStorage.setItem(KEY_JUMP, v); } catch(e) {}
+  updateAllLabels();
+}
+
+loadSpeedJump();
+
+// Slider handlers
 document.getElementById('bgm-vol').addEventListener('input', function(){ onBgmVolChange(this.value); });
 document.getElementById('sfx-vol').addEventListener('input', function(){ onSfxVolChange(this.value); });
+document.getElementById('speed-mult').addEventListener('input', function(){ onSpeedChange(this.value); });
+document.getElementById('jump-mult').addEventListener('input', function(){ onJumpChange(this.value); });
 
 // Settings panel toggle
 const settingsScreen = document.getElementById('settings-screen');
