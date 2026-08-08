@@ -52,6 +52,30 @@
   .overlay-card .stat-num { font-size:24px; font-weight:700; color:var(--gold); }
   .overlay-card .stat-label { font-size:11px; color:rgba(255,255,255,0.5); }
 
+  /* Level select */
+  .world-grid { display:flex; flex-direction:column; gap:8px; margin-bottom:16px; width:100%; }
+  .world-btn {
+    background:rgba(255,255,255,0.06); border:2px solid rgba(255,255,255,0.15);
+    border-radius:8px; padding:10px 14px; color:#fff; cursor:pointer;
+    font-family:inherit; text-align:left; display:flex; align-items:center;
+    gap:10px; transition:all 0.15s; font-size:13px; width:100%;
+  }
+  .world-btn:hover { background:rgba(255,255,255,0.12); border-color:rgba(255,255,255,0.3); }
+  .world-btn .w-icon { font-size:28px; flex-shrink:0; }
+  .world-btn .w-info { flex:1; }
+  .world-btn .w-name { font-weight:700; font-size:14px; margin-bottom:2px; }
+  .world-btn .w-desc { font-size:11px; opacity:0.5; }
+  .world-btn .w-badge { font-size:10px; padding:3px 8px; border-radius:4px; }
+  .w-badge.easy { background:#4caf50; color:#fff; }
+  .w-badge.medium { background:#ff9800; color:#fff; }
+  .w-badge.hard { background:#f44336; color:#fff; }
+  .w-badge.extreme { background:#9c27b0; color:#fff; }
+
+  /* Level clear screen */
+  .flag-icon { font-size:64px; display:block; animation: flagWave 0.6s ease-in-out infinite alternate; }
+  @keyframes flagWave { from { transform:rotate(-5deg); } to { transform:rotate(5deg); } }
+  .clear-bonus { color:#4caf50; font-size:14px; margin:4px 0; }
+
   .btn {
     display:inline-block; padding:14px 36px; border-radius:4px;
     font-size:15px; font-weight:700; cursor:pointer; border:none;
@@ -113,17 +137,31 @@
   </div>
 </div>
 
-<!-- Start Screen -->
+<!-- Start / Level Select Screen -->
 <div class="overlay active" id="start-screen">
   <div class="overlay-card">
     <span class="pixel-icon">🍄</span>
     <h1>超级冒险</h1>
-    <p class="subtitle">像素风马里奥平台跳跃</p>
-    <button class="btn btn-primary" id="btn-start">开始冒险</button>
-    <p class="tip">
-      ⌨️ <kbd>← →</kbd> 移动 &nbsp; <kbd>空格</kbd> 跳跃<br>
-      👟 踩敌人消灭 &nbsp; 🪙 收集金币
-    </p>
+    <p class="subtitle">选择你的冒险世界</p>
+    <div class="world-grid" id="world-grid"></div>
+    <p class="tip">⌨️ <kbd>← →</kbd> 移动 &nbsp; <kbd>空格</kbd> 跳跃<br>🦘 空中可二连跳 &nbsp; 🚩 到达旗帜通关</p>
+  </div>
+</div>
+
+<!-- Level Clear -->
+<div class="overlay" id="levelclear-screen">
+  <div class="overlay-card">
+    <span class="flag-icon">🚩</span>
+    <h1>关卡通过！</h1>
+    <p class="subtitle" id="clear-world-name"></p>
+    <div class="stat-row">
+      <div class="stat"><div class="stat-num" id="clear-coins">0</div><div class="stat-label">🪙 金币</div></div>
+      <div class="stat"><div class="stat-num" id="clear-score">0</div><div class="stat-label">⭐ 分数</div></div>
+      <div class="stat"><div class="stat-num" id="clear-time">0s</div><div class="stat-label">⏱ 用时</div></div>
+    </div>
+    <p class="clear-bonus" id="clear-bonus"></p>
+    <button class="btn btn-primary" id="btn-next">下一关 ▶</button>
+    <button class="btn btn-secondary" id="btn-back-menu">返回选关</button>
   </div>
 </div>
 
@@ -157,6 +195,7 @@ const scoreDisplay = document.getElementById('score-display');
 const distDisplay = document.getElementById('dist-display');
 const startScreen = document.getElementById('start-screen');
 const gameoverScreen = document.getElementById('gameover-screen');
+const levelClearScreen = document.getElementById('levelclear-screen');
 const deathMsg = document.getElementById('death-msg');
 const finalCoins = document.getElementById('final-coins');
 const finalScore = document.getElementById('final-score');
@@ -165,13 +204,30 @@ const finalDist = document.getElementById('final-dist');
 // ── Constants ──────────────────────────
 const TILE = 32;
 const GRAVITY = 0.38;
-const PLAYER_SPEED = 3.5;
+const PLAYER_SPEED = 2.1; // reduced 40%
 const PLAYER_JUMP = -11.0;
 const DOUBLE_JUMP_FORCE = -8.5;
 const VAR_JUMP_RELEASE = 0.45; // multiply vy when releasing jump early
 const SEGMENT_WIDTH = 18; // tiles per preset segment
 const COIN_SCORE = 100;
 const STOMP_SCORE = 200;
+
+// ── World definitions ──────────────────
+const WORLDS = [
+  { id:0, name:'🌿 绿色草原', desc:'阳光草地，适合新手', diff:'easy', bgTop:'#5c94fc', bgMid:'#87ceeb', bgBot:'#b0e0e6', ground:'#8b5e3c', grass:'#5da83a', hill:'#7ec850', len:20,
+    segments:[0,1,0,4,2,1,0,3,5,0,2,6,1,0,8,10,0,4,1,11] },
+  { id:1, name:'🦇 地下洞穴', desc:'幽暗矿洞，步步惊心', diff:'medium', bgTop:'#1a1a2e', bgMid:'#1a1a2e', bgBot:'#0d0d1a', ground:'#5c4c3c', grass:'#4a3a2a', hill:'#3a2a1a', len:22,
+    segments:[7,2,4,0,10,3,7,4,8,1,7,0,5,4,12,2,7,10,0,13,7,14] },
+  { id:2, name:'☁️ 云端天国', desc:'高空浮岛，考验跳跃', diff:'medium', bgTop:'#e8f0ff', bgMid:'#c8d8f0', bgBot:'#a8c0e0', ground:'#d4c8b0', grass:'#b8e8a0', hill:'#e0e8f0', len:22,
+    segments:[6,3,9,1,8,6,0,9,5,3,10,6,2,9,12,6,3,0,1,9,15,6] },
+  { id:3, name:'🔥 火焰城堡', desc:'熔岩要塞，地狱难度', diff:'hard', bgTop:'#2a0a0a', bgMid:'#1a0505', bgBot:'#0a0000', ground:'#4a2a1a', grass:'#6b2a1a', hill:'#3a1a0a', len:24,
+    segments:[14,4,10,2,7,13,4,14,8,11,7,13,5,14,4,9,10,13,7,14,8,12,11,14] },
+  { id:4, name:'❄️ 冰雪王国', desc:'极寒之地，滑行挑战', diff:'extreme', bgTop:'#c8e8ff', bgMid:'#e0f0ff', bgBot:'#f0f8ff', ground:'#c8d8e8', grass:'#d8e8f8', hill:'#b8c8d8', len:26,
+    segments:[11,9,1,0,5,8,10,3,13,2,0,12,7,9,1,4,8,10,15,5,0,3,11,7,6,13] },
+];
+
+// Flag offset within last segment (near the end)
+const FLAG_OFFSET = 14 * TILE; // tiles from segment start
 
 // ── Canvas sizing ──────────────────────
 let W, H, groundY;
@@ -185,8 +241,10 @@ resize();
 
 // ── Game State ─────────────────────────
 let gameState = 'start';
+let currentWorldIdx = 0;
 let player, camera, coins, enemies, particles, blocks, pipes;
 let score, collectedCoins, distance, frameCount;
+let levelStartTime, flagX, levelClearTriggered;
 let keys = {};
 let mobileLeft = false, mobileRight = false, mobileJump = false;
 
@@ -415,18 +473,14 @@ function buildSegment(startX, segType) {
 function ensureChunksGenerated() {
   const rightEdge = camera.x + W + TILE * 4;
   const maxSeg = Math.ceil(rightEdge / (SEGMENT_WIDTH * TILE)) + 1;
-
-  // Initialize segment order on first call
-  if (segmentOrder.length === 0) {
-    // Repeat the 16 segments 3 times, cycling for variety
-    const base = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
-    segmentOrder = [...base, ...base, ...base, ...base, ...base]; // 80 segments = plenty
-  }
+  const world = getCurrentWorld();
 
   for (let i = 0; i <= maxSeg; i++) {
     const key = getChunkKey(i);
     if (chunkData[key]) continue;
-    const segIdx = segmentOrder[i % segmentOrder.length];
+    // Use world-specific segments, cycling through the world's segment list
+    const segList = world.segments;
+    const segIdx = segList[i % segList.length];
     chunkData[key] = buildSegment(i * SEGMENT_WIDTH * TILE, segIdx);
   }
 }
@@ -504,23 +558,31 @@ function initGame() {
   collectedCoins = 0;
   distance = 0;
   frameCount = 0;
+  levelStartTime = Date.now();
+  levelClearTriggered = false;
   chunkData = {};
   generatedUpTo = -1;
+  segmentOrder = [];
+
+  const world = WORLDS[currentWorldIdx];
+  flagX = world.len * SEGMENT_WIDTH * TILE + FLAG_OFFSET;
 
   ensureChunksGenerated();
   updateHUD();
 }
 
+function getCurrentWorld() { return WORLDS[currentWorldIdx]; }
+
 function updateHUD() {
   coinDisplay.textContent = collectedCoins;
   scoreDisplay.textContent = score;
-  distDisplay.textContent = Math.floor(distance / TILE) + 'm';
+  const remaining = flagX - player.x;
+  const remainM = Math.max(0, Math.floor(remaining / TILE));
+  distDisplay.textContent = remainM + 'm🚩';
 }
 
 // ── Update ─────────────────────────────
 function update() {
-  frameCount++;
-
   // Input
   let moveX = 0;
   if (keys['ArrowLeft'] || keys['KeyA'] || mobileLeft) moveX = -1;
@@ -735,6 +797,23 @@ function update() {
     }
   }
 
+  // ── Flag collision ──
+  if (!levelClearTriggered && flagX && player.x + player.w > flagX) {
+    levelClearTriggered = true;
+    const elapsed = Math.floor((Date.now() - levelStartTime) / 1000);
+    const bonus = Math.floor((flagX - camera.x) / TILE) * 10;
+    score += bonus + 500;
+    document.getElementById('clear-world-name').textContent = getCurrentWorld().name;
+    document.getElementById('clear-coins').textContent = collectedCoins;
+    document.getElementById('clear-score').textContent = score;
+    document.getElementById('clear-time').textContent = elapsed + 's';
+    document.getElementById('clear-bonus').textContent = '🏆 剩余距离加成 +' + bonus;
+    setTimeout(() => { levelClearScreen.classList.add('active'); gameState = 'levelclear'; }, 600);
+    spawnParticles(flagX, groundY - TILE*5, '#ffd700', 30);
+    spawnParticles(flagX, groundY - TILE*3, '#ff4444', 20);
+    spawnParticles(flagX, groundY - TILE*4, '#44ff44', 20);
+  }
+
   // Update particles
   for (let p of particles) {
     p.x += p.vx;
@@ -802,27 +881,27 @@ function drawBlock(ctx, block, camX) {
   const by = y + bounceY;
 
   switch (block.type) {
-    case 'ground':
-      ctx.fillStyle = '#8b5e3c';
+    case 'ground': {
+      const w = getCurrentWorld();
+      ctx.fillStyle = w.ground;
       ctx.fillRect(x, by, TILE, TILE);
-      ctx.fillStyle = '#6b3f1f';
+      ctx.fillStyle = w.id === 4 ? '#b8c8d8' : (w.id === 1 ? '#3a2a1a' : '#6b3f1f');
       ctx.fillRect(x, by, TILE, 3);
-      // Grass top
-      ctx.fillStyle = '#5da83a';
+      ctx.fillStyle = w.grass;
       ctx.fillRect(x, by, TILE, 6);
-      // Dirt texture
       ctx.fillStyle = 'rgba(0,0,0,0.15)';
       ctx.fillRect(x + 4, by + 10, 4, 4);
       ctx.fillRect(x + 16, by + 16, 4, 4);
       ctx.fillRect(x + 24, by + 8, 3, 3);
-      break;
-    case 'ground_deep':
-      ctx.fillStyle = '#6b3f1f';
+      break; }
+    case 'ground_deep': {
+      const w = getCurrentWorld();
+      ctx.fillStyle = w.id === 1 ? '#3a2a1a' : (w.id === 4 ? '#a8b8c8' : '#6b3f1f');
       ctx.fillRect(x, by, TILE, TILE);
       ctx.fillStyle = 'rgba(0,0,0,0.12)';
       ctx.fillRect(x + 8, by + 4, 3, 3);
       ctx.fillRect(x + 22, by + 14, 4, 4);
-      break;
+      break; }
     case 'brick':
       drawPixelBlock(ctx, x, by, TILE, TILE, '#c84c09', '#8b3000');
       // Brick lines
@@ -1011,30 +1090,107 @@ function drawParticle(ctx, p, camX) {
   ctx.globalAlpha = 1;
 }
 
+function drawFlag(ctx, fx, camX) {
+  const x = fx - camX;
+  if (x < -TILE*3 || x > W + TILE*3) return;
+  const poleX = x;
+  const poleTop = groundY - TILE * 6;
+  const poleBot = groundY + TILE;
+
+  // Flag shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.fillRect(poleX + 6, groundY + 4, 8, 4);
+
+  // Pole
+  ctx.fillStyle = '#888';
+  ctx.fillRect(poleX, poleTop, 6, poleBot - poleTop);
+  ctx.fillStyle = '#aaa';
+  ctx.fillRect(poleX, poleTop, 2, poleBot - poleTop);
+
+  // Ball on top
+  ctx.fillStyle = '#ffd700';
+  ctx.beginPath();
+  ctx.arc(poleX + 3, poleTop, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(poleX + 1, poleTop - 3, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Flag banner
+  const wave = Math.sin(frameCount * 0.06) * 3;
+  const flagW = 28, flagH = 22;
+  ctx.fillStyle = '#e52521';
+  ctx.beginPath();
+  ctx.moveTo(poleX + 4, poleTop + 10);
+  ctx.lineTo(poleX + 4 + flagW + wave, poleTop + 10 + flagH / 2);
+  ctx.lineTo(poleX + 4, poleTop + 10 + flagH);
+  ctx.closePath();
+  ctx.fill();
+
+  // Flag star
+  ctx.fillStyle = '#ffd700';
+  ctx.font = '14px serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('⭐', poleX + 4 + flagW/2 + wave/2, poleTop + 10 + flagH/2 + 5);
+
+  // Clear sparkle
+  if (levelClearTriggered) {
+    ctx.fillStyle = `rgba(255,215,0,${0.3 + Math.sin(frameCount*0.15)*0.3})`;
+    ctx.beginPath();
+    ctx.arc(poleX + 3, poleTop + 20, 20 + Math.sin(frameCount*0.1)*5, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
 function drawBackground(ctx) {
-  // Sky gradient
+  const world = getCurrentWorld();
+  // Sky gradient - world themed
   const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
-  skyGrad.addColorStop(0, '#5c94fc');
-  skyGrad.addColorStop(0.6, '#87ceeb');
-  skyGrad.addColorStop(1, '#b0e0e6');
+  skyGrad.addColorStop(0, world.bgTop);
+  skyGrad.addColorStop(0.6, world.bgMid);
+  skyGrad.addColorStop(1, world.bgBot);
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, W, H);
 
-  // Clouds (parallax)
-  ctx.fillStyle = 'rgba(255,255,255,0.8)';
-  for (let i = 0; i < 6; i++) {
-    const cx = (i * 250 + 80) - (camera.x * 0.2) % (W + 500);
-    const cy = 40 + i * 35;
-    ctx.fillRect(cx, cy, 60, 16);
-    ctx.fillRect(cx + 14, cy - 10, 32, 14);
-    ctx.fillRect(cx + 24, cy - 16, 20, 8);
+  // Clouds (parallax) - skip for underground/fire worlds
+  if (world.id !== 1 && world.id !== 3) {
+    ctx.fillStyle = 'rgba(255,255,255,' + (world.id === 2 ? '0.9' : '0.6') + ')';
+    for (let i = 0; i < (world.id === 2 ? 12 : 6); i++) {
+      const cx = (i * 250 + 80) - (camera.x * 0.2) % (W + 500);
+      const cy = 40 + i * 35;
+      ctx.fillRect(cx, cy, 60, 16);
+      ctx.fillRect(cx + 14, cy - 10, 32, 14);
+      ctx.fillRect(cx + 24, cy - 16, 20, 8);
+    }
+  }
+
+  // Underground stalactites / fire embers
+  if (world.id === 1) {
+    ctx.fillStyle = 'rgba(60,50,40,0.6)';
+    for (let i = 0; i < 5; i++) {
+      const sx = (i * 200 + 60) - (camera.x * 0.1) % (W + 400);
+      ctx.beginPath();
+      ctx.moveTo(sx, 0);
+      ctx.lineTo(sx + 20, 40 + i*10);
+      ctx.lineTo(sx - 20, 40 + i*10);
+      ctx.fill();
+    }
+  }
+  if (world.id === 3) {
+    ctx.fillStyle = 'rgba(255,100,20,0.5)';
+    for (let i = 0; i < 8; i++) {
+      const ex = (i * 170 + 30) - (camera.x * 0.15) % (W + 340);
+      const ey = (i * 130 + 60) % H;
+      ctx.fillRect(ex, ey, 4, 4);
+      ctx.fillRect(ex + 2, ey - 2, 2, 2);
+    }
   }
 
   // Hills (parallax)
-  ctx.fillStyle = '#7ec850';
+  ctx.fillStyle = world.hill;
   for (let i = 0; i < 8; i++) {
     const hx = (i * 180 + 40) - (camera.x * 0.3) % (W + 360);
-    const hw = rand(80, 130) * 0 + 100; // deterministic-ish
     ctx.beginPath();
     ctx.arc(hx + 50, groundY, 60 + i*8, Math.PI, 0);
     ctx.fill();
@@ -1063,6 +1219,9 @@ function render() {
   const enemies = getAllEnemies();
   for (let e of enemies) drawEnemy(ctx, e, camX);
 
+  // Flag
+  if (flagX) drawFlag(ctx, flagX, camX);
+
   // Player
   if (gameState !== 'gameover') drawPlayer(ctx);
 
@@ -1077,9 +1236,10 @@ function render() {
 // ── Game Loop ──────────────────────────
 function gameLoop() {
   if (gameState === 'playing') update();
+  frameCount++;
 
-  // Also update in gameover for particle physics
-  if (gameState === 'gameover') {
+  // Also update particles in gameover/levelclear
+  if (gameState === 'gameover' || gameState === 'levelclear') {
     for (let p of particles) {
       p.x += p.vx; p.y += p.vy; p.vy += 0.1;
       p.life -= p.decay;
@@ -1123,17 +1283,52 @@ canvas.addEventListener('pointerdown', e => {
 });
 canvas.addEventListener('pointerup', () => { mobileJump = false; });
 
-// ── Buttons ────────────────────────────
-document.getElementById('btn-start').addEventListener('click', () => {
-  startScreen.classList.remove('active');
-  gameState = 'playing';
-  initGame();
-});
+// ── Level select buttons ────────────────
+function buildLevelSelect() {
+  const grid = document.getElementById('world-grid');
+  grid.innerHTML = '';
+  const diffLabels = { easy:'简单', medium:'中等', hard:'困难', extreme:'极难' };
+  WORLDS.forEach((w, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'world-btn';
+    btn.innerHTML = `
+      <span class="w-icon">${w.name.slice(0,2)}</span>
+      <div class="w-info">
+        <div class="w-name">${w.name}</div>
+        <div class="w-desc">${w.desc} · ${w.len}段关卡</div>
+      </div>
+      <span class="w-badge ${w.diff}">${diffLabels[w.diff]}</span>
+    `;
+    btn.addEventListener('click', () => {
+      currentWorldIdx = i;
+      startScreen.classList.remove('active');
+      gameState = 'playing';
+      initGame();
+    });
+    grid.appendChild(btn);
+  });
+}
+buildLevelSelect();
 
+// ── Buttons ────────────────────────────
 document.getElementById('btn-restart').addEventListener('click', () => {
   gameoverScreen.classList.remove('active');
   gameState = 'playing';
   initGame();
+});
+
+document.getElementById('btn-next').addEventListener('click', () => {
+  levelClearScreen.classList.remove('active');
+  currentWorldIdx = (currentWorldIdx + 1) % WORLDS.length;
+  gameState = 'playing';
+  initGame();
+});
+
+document.getElementById('btn-back-menu').addEventListener('click', () => {
+  levelClearScreen.classList.remove('active');
+  gameState = 'start';
+  startScreen.classList.add('active');
+  buildLevelSelect(); // refresh
 });
 
 // ── Utility ────────────────────────────
