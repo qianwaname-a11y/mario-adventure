@@ -828,6 +828,7 @@ function update() {
   // ── Flag collision ──
   if (!levelClearTriggered && flagX && player.x + player.w > flagX) {
     levelClearTriggered = true;
+    lives = 3; updateHUD(); // refill hearts on clear
     const elapsed = Math.floor((Date.now() - levelStartTime) / 1000);
     const bonus = Math.floor((flagX - camera.x) / TILE) * 10;
     score += bonus + 500;
