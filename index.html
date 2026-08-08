@@ -164,11 +164,12 @@ const finalDist = document.getElementById('final-dist');
 
 // ── Constants ──────────────────────────
 const TILE = 32;
-const GRAVITY = 0.55;
+const GRAVITY = 0.38;
 const PLAYER_SPEED = 3.5;
-const PLAYER_JUMP = -9.5;
-const WORLD_HEIGHT_TILES = 18;
-const CHUNK_WIDTH = 16; // tiles per chunk
+const PLAYER_JUMP = -11.0;
+const DOUBLE_JUMP_FORCE = -8.5;
+const VAR_JUMP_RELEASE = 0.45; // multiply vy when releasing jump early
+const SEGMENT_WIDTH = 18; // tiles per preset segment
 const COIN_SCORE = 100;
 const STOMP_SCORE = 200;
 
@@ -196,6 +197,8 @@ function createPlayer() {
     w: TILE * 0.75, h: TILE * 0.95,
     vx: 0, vy: 0,
     onGround: false,
+    doubleJumpUsed: false,
+    jumpHeld: false,
     facing: 1,
     animFrame: 0, animTimer: 0,
     invincible: 0,
@@ -208,106 +211,223 @@ function createCamera() {
   return { x: 0, y: 0 };
 }
 
-// ── Level generation ──────────────────
-let chunkData = {}; // keyed by chunk index
+// ── Level generation: 16 preset segments ──
+let chunkData = {};
 let generatedUpTo = -1;
+let segmentOrder = []; // pre-shuffled for variety
 
 function getChunkKey(idx) { return Math.floor(idx); }
 
-function generateChunk(chunkIdx) {
-  const key = getChunkKey(chunkIdx);
-  if (chunkData[key]) return;
+// Shorthand helpers
+function G(c, sx, gy) { // ground tile
+  c.blocks.push({x:sx, y:gy, w:TILE, h:TILE, type:'ground'});
+  c.blocks.push({x:sx, y:gy+TILE, w:TILE, h:TILE, type:'ground_deep'});
+}
+function B(c, sx, sy) { c.blocks.push({x:sx, y:sy, w:TILE, h:TILE, type:'brick'}); }
+function Q(c, sx, sy) { c.blocks.push({x:sx, y:sy, w:TILE, h:TILE, type:'question'}); }
+function C(c, sx, sy, bob) { c.coins.push({x:sx+TILE/2, y:sy, collected:false, bobOffset:bob||0}); }
+function E(c, sx, sy, dir) { c.enemies.push({x:sx, y:sy, w:TILE*0.8, h:TILE*0.8, vx:(dir||0.8), vy:0, alive:true, animTimer:0}); }
+function P(c, sx, sy, h) { c.pipes.push({x:sx, y:sy, w:TILE*2, h:h*TILE, height:h}); }
 
-  const startX = chunkIdx * CHUNK_WIDTH * TILE;
-  const c = { blocks:[], coins:[], enemies:[], pipes:[], gap:false };
+function buildSegment(startX, segType) {
+  const s = { blocks:[], coins:[], enemies:[], pipes:[] };
+  const gy = groundY;
+  const X = (tx) => startX + tx * TILE;
 
-  // Random gap (no ground) - but not in first 3 chunks
-  if (chunkIdx > 2 && Math.random() < 0.18) {
-    c.gap = true;
-  }
-
-  // Ground blocks
-  if (!c.gap) {
-    const gTileY = groundY / TILE;
-    for (let tx = 0; tx < CHUNK_WIDTH; tx++) {
-      c.blocks.push({ x: startX + tx * TILE, y: groundY, w: TILE, h: TILE, type: 'ground' });
-      // Second layer underground
-      c.blocks.push({ x: startX + tx * TILE, y: groundY + TILE, w: TILE, h: TILE, type: 'ground_deep' });
+  // Ground helper: solid ground from tx=a to tx=b (inclusive)
+  function ground(a, b) { for (let i=a; i<=b; i++) G(s, X(i), gy); }
+  // Coin arc
+  function coinArc(cx, cyTop, count, spread) {
+    for (let i=0; i<count; i++) {
+      const t = i/(count-1) - 0.5;
+      C(s, cx + t*spread*TILE, cyTop + Math.abs(t)*TILE*2.5, i*0.8);
     }
   }
 
-  // Platforms and floating blocks
-  const numPlatforms = (c.gap) ? 3 : randInt(1, 3);
-  for (let i = 0; i < numPlatforms; i++) {
-    const pw = randInt(2, 5);
-    const px = startX + rand(1, CHUNK_WIDTH - pw - 1) * TILE;
-    const py = groundY - randInt(2, 6) * TILE;
+  switch(segType) {
+    // ── 0: 平坦草地（教程）──
+    case 0:
+      ground(0, 17);
+      C(s, X(5), gy-TILE*3.5, 0); C(s, X(6), gy-TILE*4.2, 0.8); C(s, X(7), gy-TILE*3.5, 1.6);
+      Q(s, X(10), gy-TILE*3); B(s, X(11), gy-TILE*3); B(s, X(12), gy-TILE*3);
+      C(s, X(10.5), gy-TILE*5, 2);
+      break;
 
-    if (Math.random() < 0.5) {
-      // Brick platform
-      for (let j = 0; j < pw; j++) {
-        c.blocks.push({ x: px + j * TILE, y: py, w: TILE, h: TILE, type: 'brick' });
+    // ── 1: 小台阶 + 金币弧 ──
+    case 1:
+      ground(0, 5); G(s, X(6), gy-TILE); ground(6, 17);
+      G(s, X(7), gy-TILE); G(s, X(8), gy-TILE*2); G(s, X(9), gy-TILE*2);
+      ground(10, 17);
+      coinArc(X(6.5), gy-TILE*5.5, 5, 1.8);
+      break;
+
+    // ── 2: 水管地带 ──
+    case 2:
+      ground(0, 4); P(s, X(3), gy-TILE*2, 2);
+      ground(5, 7); P(s, X(9), gy-TILE*3, 3);
+      ground(8, 17);
+      C(s, X(4)+TILE, gy-TILE*4, 0); C(s, X(10)+TILE, gy-TILE*5, 1);
+      C(s, X(6), gy-TILE*3, 2); C(s, X(7), gy-TILE*2.5, 3);
+      break;
+
+    // ── 3: 2格缺口 + 浮台 ──
+    case 3:
+      ground(0, 5);
+      B(s, X(7), gy-TILE*2); B(s, X(8), gy-TILE*2); B(s, X(9), gy-TILE*2);
+      ground(10, 17);
+      C(s, X(7.5), gy-TILE*4, 0); C(s, X(8.5), gy-TILE*4.5, 1.5);
+      Q(s, X(8), gy-TILE*5);
+      break;
+
+    // ── 4: 敌人初遇 ──
+    case 4:
+      ground(0, 17);
+      E(s, X(5), gy-TILE*0.9, 0.7); E(s, X(12), gy-TILE*0.9, -0.7);
+      C(s, X(5), gy-TILE*3, 0); C(s, X(5.5), gy-TILE*3.5, 1); C(s, X(6), gy-TILE*3, 2);
+      C(s, X(12), gy-TILE*3, 3); C(s, X(12.5), gy-TILE*3.5, 4); C(s, X(13), gy-TILE*3, 5);
+      Q(s, X(8), gy-TILE*3); B(s, X(9), gy-TILE*3);
+      break;
+
+    // ── 5: 上升阶梯 ──
+    case 5:
+      ground(0, 1); G(s, X(2), gy-TILE); G(s, X(3), gy-TILE*2); G(s, X(4), gy-TILE*3);
+      ground(4, 5);
+      G(s, X(8), gy-TILE); G(s, X(9), gy-TILE*2); G(s, X(10), gy-TILE*3);
+      ground(10, 17);
+      coinArc(X(3.5), gy-TILE*5.5, 5, 2.0);
+      coinArc(X(9.5), gy-TILE*5.5, 5, 2.0);
+      break;
+
+    // ── 6: 高平台挑战 ──
+    case 6:
+      ground(0, 3);
+      B(s, X(5), gy-TILE*4); B(s, X(6), gy-TILE*4); B(s, X(7), gy-TILE*4);
+      ground(9, 17);
+      Q(s, X(6), gy-TILE*5);
+      C(s, X(5.5), gy-TILE*6, 0); C(s, X(6.5), gy-TILE*6.5, 1.5);
+      C(s, X(11), gy-TILE*3, 2); C(s, X(12), gy-TILE*3.5, 3);
+      break;
+
+    // ── 7: 砖墙迷宫 ──
+    case 7:
+      ground(0, 17);
+      B(s, X(2), gy-TILE); B(s, X(2), gy-TILE*2); B(s, X(2), gy-TILE*3);
+      B(s, X(5), gy-TILE); B(s, X(5), gy-TILE*2); B(s, X(5), gy-TILE*3);
+      B(s, X(8), gy-TILE); B(s, X(8), gy-TILE*2); B(s, X(8), gy-TILE*3);
+      B(s, X(11), gy-TILE); B(s, X(11), gy-TILE*2); B(s, X(14), gy-TILE); B(s, X(14), gy-TILE*2); B(s, X(14), gy-TILE*3);
+      C(s, X(3), gy-TILE*2, 0); C(s, X(6), gy-TILE*2, 1); C(s, X(9), gy-TILE*2, 2);
+      C(s, X(12), gy-TILE*2, 3); C(s, X(15), gy-TILE*2.5, 4);
+      Q(s, X(10), gy-TILE*3);
+      break;
+
+    // ── 8: 双管齐下 ──
+    case 8:
+      ground(0, 4); P(s, X(3), gy-TILE*2, 2);
+      ground(5, 8); P(s, X(8), gy-TILE*3, 3);
+      ground(9, 17);
+      C(s, X(4)+TILE, gy-TILE*4, 0); C(s, X(9)+TILE, gy-TILE*5.5, 1);
+      C(s, X(6), gy-TILE*2.5, 2); C(s, X(7), gy-TILE*2, 3);
+      Q(s, X(12), gy-TILE*3);
+      E(s, X(14), gy-TILE*0.9, -0.6);
+      break;
+
+    // ── 9: 宽缺口 + 二连跳 ──
+    case 9:
+      ground(0, 4);
+      ground(9, 17);
+      B(s, X(6), gy-TILE*2); B(s, X(7), gy-TILE*2);
+      C(s, X(6.5), gy-TILE*3.5, 0);
+      C(s, X(11), gy-TILE*3, 1); C(s, X(12), gy-TILE*3.5, 2); C(s, X(13), gy-TILE*3, 3);
+      Q(s, X(12), gy-TILE*5);
+      break;
+
+    // ── 10: 问号砖阵 ──
+    case 10:
+      ground(0, 17);
+      Q(s, X(2), gy-TILE*3); Q(s, X(4), gy-TILE*3); Q(s, X(6), gy-TILE*3);
+      Q(s, X(8), gy-TILE*3); Q(s, X(10), gy-TILE*3); Q(s, X(12), gy-TILE*3);
+      C(s, X(3), gy-TILE*5, 0); C(s, X(5), gy-TILE*5.5, 1); C(s, X(7), gy-TILE*5, 2);
+      C(s, X(9), gy-TILE*5.5, 3); C(s, X(11), gy-TILE*5, 4); C(s, X(13), gy-TILE*5.5, 5);
+      E(s, X(15), gy-TILE*0.9, -0.7);
+      break;
+
+    // ── 11: 下降阶梯 ──
+    case 11:
+      G(s, X(1), gy-TILE*3); G(s, X(2), gy-TILE*3); G(s, X(3), gy-TILE*2); G(s, X(4), gy-TILE*2);
+      G(s, X(5), gy-TILE); G(s, X(6), gy-TILE);
+      ground(6, 17);
+      coinArc(X(2), gy-TILE*5.5, 6, 2.2);
+      E(s, X(9), gy-TILE*0.9, 0.7); E(s, X(15), gy-TILE*0.9, -0.8);
+      break;
+
+    // ── 12: 金币瀑布 ──
+    case 12:
+      ground(0, 17);
+      for (let row=0; row<4; row++) {
+        for (let col=0; col<8; col++) {
+          C(s, X(3+col*1.5), gy-TILE*(2.5+row*1.8), row*2+col*0.3);
+        }
       }
-    } else {
-      // Question blocks with bricks
-      const qIdx = randInt(0, pw - 1);
-      for (let j = 0; j < pw; j++) {
-        const type = (j === qIdx) ? 'question' : 'brick';
-        c.blocks.push({ x: px + j * TILE, y: py, w: TILE, h: TILE, type });
-      }
-    }
+      Q(s, X(7), gy-TILE*3); Q(s, X(10), gy-TILE*3);
+      break;
 
-    // Coins above platform
-    for (let j = 0; j < pw; j++) {
-      if (Math.random() < 0.5) {
-        c.coins.push({ x: px + j * TILE + TILE/2, y: py - TILE * 1.5, collected: false, bobOffset: rand(0, Math.PI*2) });
-      }
-    }
+    // ── 13: 敌人走廊 ──
+    case 13:
+      ground(0, 17);
+      E(s, X(3), gy-TILE*0.9, 0.8); E(s, X(7), gy-TILE*0.9, -0.8);
+      E(s, X(11), gy-TILE*0.9, 0.7); E(s, X(15), gy-TILE*0.9, -0.7);
+      // Safe coins above
+      C(s, X(3.5), gy-TILE*3, 0); C(s, X(7.5), gy-TILE*3.5, 1);
+      C(s, X(11.5), gy-TILE*3, 2); C(s, X(15.5), gy-TILE*3.5, 3);
+      Q(s, X(9), gy-TILE*4);
+      break;
+
+    // ── 14: 城堡地带 ──
+    case 14:
+      ground(0, 1);
+      // Castle wall structure
+      B(s, X(3), gy-TILE); B(s, X(3), gy-TILE*2); B(s, X(3), gy-TILE*3); B(s, X(3), gy-TILE*4);
+      B(s, X(4), gy-TILE); B(s, X(4), gy-TILE*2); B(s, X(4), gy-TILE*3); B(s, X(4), gy-TILE*4);
+      B(s, X(5), gy-TILE*4);
+      B(s, X(6), gy-TILE); B(s, X(6), gy-TILE*2); B(s, X(6), gy-TILE*3); B(s, X(6), gy-TILE*4);
+      B(s, X(7), gy-TILE); B(s, X(7), gy-TILE*2); B(s, X(7), gy-TILE*3); B(s, X(7), gy-TILE*4);
+      ground(9, 17);
+      P(s, X(12), gy-TILE*2, 2);
+      C(s, X(5), gy-TILE*5.5, 0); Q(s, X(5), gy-TILE*5);
+      E(s, X(13), gy-TILE*0.9, -0.7);
+      break;
+
+    // ── 15: 奖励天堂 ──
+    case 15:
+      ground(0, 17);
+      Q(s, X(2), gy-TILE*3); Q(s, X(4), gy-TILE*3); Q(s, X(6), gy-TILE*3);
+      Q(s, X(10), gy-TILE*3); Q(s, X(12), gy-TILE*3); Q(s, X(14), gy-TILE*3);
+      // Dense coin arcs
+      coinArc(X(3), gy-TILE*5, 6, 2.5);
+      coinArc(X(11), gy-TILE*5, 6, 2.5);
+      C(s, X(0.5), gy-TILE*2, 0); C(s, X(17.5), gy-TILE*2, 1);
+      break;
   }
 
-  // Floating coins in arcs
-  if (chunkIdx > 0) {
-    const numArcs = randInt(0, 2);
-    for (let a = 0; a < numArcs; a++) {
-      const arcX = startX + rand(2, CHUNK_WIDTH - 4) * TILE;
-      const arcY = groundY - randInt(3, 7) * TILE;
-      const arcLen = randInt(3, 6);
-      for (let j = 0; j < arcLen; j++) {
-        const cy = arcY + Math.sin(j * 0.5) * TILE * 1.5;
-        c.coins.push({ x: arcX + j * TILE * 1.2, y: cy, collected: false, bobOffset: rand(0, Math.PI*2) });
-      }
-    }
-  }
-
-  // Pipes
-  if (chunkIdx > 1 && Math.random() < 0.4) {
-    const pipeH = randInt(2, 3);
-    const pipeX = startX + rand(3, CHUNK_WIDTH - 4) * TILE;
-    c.pipes.push({ x: pipeX, y: groundY - pipeH * TILE, w: TILE * 2, h: pipeH * TILE, height: pipeH });
-  }
-
-  // Enemies
-  if (chunkIdx > 1) {
-    const numEnemies = randInt(0, 2);
-    for (let e = 0; e < numEnemies; e++) {
-      const ex = startX + rand(3, CHUNK_WIDTH - 3) * TILE;
-      c.enemies.push({
-        x: ex, y: groundY - TILE * 0.9,
-        w: TILE * 0.8, h: TILE * 0.8,
-        vx: rand(0.6, 1.2) * (Math.random() > 0.5 ? 1 : -1),
-        vy: 0, alive: true, animTimer: 0,
-      });
-    }
-  }
-
-  chunkData[key] = c;
+  return s;
 }
 
 function ensureChunksGenerated() {
   const rightEdge = camera.x + W + TILE * 4;
-  const maxChunk = Math.ceil(rightEdge / (CHUNK_WIDTH * TILE)) + 1;
-  for (let i = 0; i <= maxChunk; i++) {
-    generateChunk(i);
+  const maxSeg = Math.ceil(rightEdge / (SEGMENT_WIDTH * TILE)) + 1;
+
+  // Initialize segment order on first call
+  if (segmentOrder.length === 0) {
+    // Repeat the 16 segments 3 times, cycling for variety
+    const base = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
+    segmentOrder = [...base, ...base, ...base, ...base, ...base]; // 80 segments = plenty
+  }
+
+  for (let i = 0; i <= maxSeg; i++) {
+    const key = getChunkKey(i);
+    if (chunkData[key]) continue;
+    const segIdx = segmentOrder[i % segmentOrder.length];
+    chunkData[key] = buildSegment(i * SEGMENT_WIDTH * TILE, segIdx);
   }
 }
 
@@ -318,8 +438,8 @@ function rectsCollide(a, b) {
 
 function getAllBlocks() {
   const blocks = [];
-  const minChunk = Math.max(0, Math.floor((camera.x - TILE*4) / (CHUNK_WIDTH * TILE)) - 1);
-  const maxChunk = Math.ceil((camera.x + W + TILE*4) / (CHUNK_WIDTH * TILE)) + 1;
+  const minChunk = Math.max(0, Math.floor((camera.x - TILE*4) / (SEGMENT_WIDTH * TILE)) - 1);
+  const maxChunk = Math.ceil((camera.x + W + TILE*4) / (SEGMENT_WIDTH * TILE)) + 1;
   for (let i = minChunk; i <= maxChunk; i++) {
     const c = chunkData[getChunkKey(i)];
     if (c) blocks.push(...c.blocks);
@@ -329,8 +449,8 @@ function getAllBlocks() {
 
 function getAllPipes() {
   const pipes = [];
-  const minChunk = Math.max(0, Math.floor((camera.x - TILE*4) / (CHUNK_WIDTH * TILE)) - 1);
-  const maxChunk = Math.ceil((camera.x + W + TILE*4) / (CHUNK_WIDTH * TILE)) + 1;
+  const minChunk = Math.max(0, Math.floor((camera.x - TILE*4) / (SEGMENT_WIDTH * TILE)) - 1);
+  const maxChunk = Math.ceil((camera.x + W + TILE*4) / (SEGMENT_WIDTH * TILE)) + 1;
   for (let i = minChunk; i <= maxChunk; i++) {
     const c = chunkData[getChunkKey(i)];
     if (c) pipes.push(...c.pipes);
@@ -340,8 +460,8 @@ function getAllPipes() {
 
 function getAllCoins() {
   const coins = [];
-  const minChunk = Math.max(0, Math.floor((camera.x - TILE*4) / (CHUNK_WIDTH * TILE)) - 1);
-  const maxChunk = Math.ceil((camera.x + W + TILE*4) / (CHUNK_WIDTH * TILE)) + 1;
+  const minChunk = Math.max(0, Math.floor((camera.x - TILE*4) / (SEGMENT_WIDTH * TILE)) - 1);
+  const maxChunk = Math.ceil((camera.x + W + TILE*4) / (SEGMENT_WIDTH * TILE)) + 1;
   for (let i = minChunk; i <= maxChunk; i++) {
     const c = chunkData[getChunkKey(i)];
     if (c) coins.push(...c.coins);
@@ -351,8 +471,8 @@ function getAllCoins() {
 
 function getAllEnemies() {
   const enemies = [];
-  const minChunk = Math.max(0, Math.floor((camera.x - TILE*4) / (CHUNK_WIDTH * TILE)) - 1);
-  const maxChunk = Math.ceil((camera.x + W + TILE*4) / (CHUNK_WIDTH * TILE)) + 1;
+  const minChunk = Math.max(0, Math.floor((camera.x - TILE*4) / (SEGMENT_WIDTH * TILE)) - 1);
+  const maxChunk = Math.ceil((camera.x + W + TILE*4) / (SEGMENT_WIDTH * TILE)) + 1;
   for (let i = minChunk; i <= maxChunk; i++) {
     const c = chunkData[getChunkKey(i)];
     if (c) enemies.push(...c.enemies);
@@ -412,11 +532,38 @@ function update() {
   player.vx = moveX * PLAYER_SPEED;
   if (moveX !== 0) player.facing = moveX;
 
-  // Jump
-  if (jumpPressed && player.onGround) {
-    player.vy = PLAYER_JUMP;
-    player.onGround = false;
+  // ── Jump system with double jump & variable height ──
+  const jumpJustPressed = (keys['Space'] || keys['ArrowUp'] || keys['KeyW'] || mobileJump);
+  const jumpHeld = jumpJustPressed;
+
+  // Reset double jump on landing
+  if (player.onGround) {
+    player.doubleJumpUsed = false;
   }
+
+  if (jumpJustPressed && !player.jumpHeld) {
+    // Jump just pressed this frame
+    if (player.onGround) {
+      player.vy = PLAYER_JUMP;
+      player.onGround = false;
+      player.jumpHeld = true;
+      player.doubleJumpUsed = false;
+    } else if (!player.doubleJumpUsed) {
+      // Double jump!
+      player.vy = DOUBLE_JUMP_FORCE;
+      player.doubleJumpUsed = true;
+      player.jumpHeld = true;
+      // Double jump particles
+      const px = player.x + player.w/2 - camera.x;
+      spawnParticles(player.x + player.w/2, player.y + player.h, '#ffffff', 6);
+    }
+  }
+
+  // Variable jump height: release jump early = shorter jump
+  if (!jumpHeld && player.jumpHeld && player.vy < 0) {
+    player.vy *= VAR_JUMP_RELEASE;
+  }
+  player.jumpHeld = jumpHeld;
 
   // Gravity
   player.vy += GRAVITY;
