@@ -172,6 +172,7 @@
     <h1>超级冒险</h1>
     <p class="subtitle">选择你的冒险世界</p>
     <div class="world-grid" id="world-grid"></div>
+    <button class="btn btn-primary" id="btn-resume" style="display:none;margin-bottom:8px;width:100%">▶ 继续游戏</button>
     <p class="tip">⌨️ <kbd>← →</kbd> 移动 &nbsp; <kbd>空格</kbd> 跳跃<br>🦘 空中可二连跳 &nbsp; 🚩 到达旗帜通关</p>
   </div>
 </div>
@@ -1484,6 +1485,8 @@ function buildLevelSelect() {
       currentWorldIdx = i;
       startScreen.classList.remove('active');
       gameState = 'playing';
+      resumeGame = false;
+      document.getElementById('btn-resume').style.display = 'none';
       initAudio(); startBGM();
       initGame();
     });
@@ -1496,6 +1499,7 @@ buildLevelSelect();
 document.getElementById('btn-restart').addEventListener('click', () => {
   gameoverScreen.classList.remove('active');
   gameState = 'playing';
+  resumeGame = false;
   initAudio(); startBGM();
   initGame();
 });
@@ -1504,15 +1508,18 @@ document.getElementById('btn-next').addEventListener('click', () => {
   levelClearScreen.classList.remove('active');
   currentWorldIdx = (currentWorldIdx + 1) % WORLDS.length;
   gameState = 'playing';
+  resumeGame = false;
   initAudio(); startBGM();
   initGame();
 });
 
 document.getElementById('btn-back-menu').addEventListener('click', () => {
   levelClearScreen.classList.remove('active');
-  gameState = 'start';
+  gameoverScreen.classList.remove('active');
+  gameState = 'start'; resumeGame = false;
   startScreen.classList.add('active');
-  buildLevelSelect(); // refresh
+  document.getElementById('btn-resume').style.display = 'none';
+  buildLevelSelect();
 });
 
 // ── 8-Bit Audio Engine ──────────────────
@@ -1790,14 +1797,27 @@ function rand(min, max) { return Math.random() * (max - min) + min; }
 function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
 
 // ── Return to menu ─────────────────────
+let resumeGame = false; // true when returning from gameplay
+
 document.getElementById('btn-return').addEventListener('click', () => {
   if (gameState === 'playing' || gameState === 'levelclear') {
+    resumeGame = true;
+    if (gameState === 'levelclear') resumeGame = false;
     gameState = 'start'; stopBGM();
     startScreen.classList.add('active');
     levelClearScreen.classList.remove('active');
     gameoverScreen.classList.remove('active');
     buildLevelSelect();
+    document.getElementById('btn-resume').style.display = resumeGame ? 'block' : 'none';
   }
+});
+
+document.getElementById('btn-resume').addEventListener('click', () => {
+  resumeGame = false;
+  startScreen.classList.remove('active');
+  gameState = 'playing';
+  initAudio(); startBGM();
+  document.getElementById('btn-resume').style.display = 'none';
 });
 
 // ── Start ──────────────────────────────
