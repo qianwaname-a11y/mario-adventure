@@ -797,7 +797,19 @@ function update() {
 
   // Fall death
   if (player.y > H + 100) {
-    if (!player.dead) killPlayer('掉入深渊');
+    if (!player.dead) {
+      if (invincibleMode) {
+        // Auto-rescue without death
+        player.y = groundY - TILE * 3;
+        player.x = Math.max(0, player.x - TILE * 4);
+        player.vy = 0; player.vx = 0;
+        player.onGround = false;
+        player.doubleJumpUsed = false;
+        spawnParticles(player.x + player.w/2, player.y + player.h/2, '#ffd700', 10);
+      } else {
+        killPlayer('掉入深渊');
+      }
+    }
     return;
   }
 
@@ -1007,7 +1019,7 @@ function killPlayer(msg) {
       player.y = groundY - TILE * 3;
       player.x = Math.max(0, player.x - TILE * 4);
       player.vy = 0; player.vx = 0;
-      player.invincible = 90;
+      player.invincible = invincibleMode ? 9999 : 90;
       player.onGround = false;
       player.doubleJumpUsed = false;
     }, 400);
